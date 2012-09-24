@@ -1,10 +1,11 @@
-require 'rest-client'
+require 'net/http'
+require 'net/https'
 require 'time'
 require 'openssl'
 require 'base64'
 
 module S3File
-  def get_from_s3(bucket,path,aws_access_key_id,aws_secret_access_key)
+  def get_from_s3(bucket,path,file_path,aws_access_key_id,aws_secret_access_key)
     now = Time.now().utc.strftime('%a, %d %b %Y %H:%M:%S GMT')
     string_to_sign = "GET\n\n\n%s\n/%s%s" % [now,bucket,path]
 
@@ -14,8 +15,26 @@ module S3File
 
     auth_string = 'AWS %s:%s' % [aws_access_key_id,signed_base64]
 
-    response = RestClient.get('https://%s.s3.amazonaws.com%s' % [bucket,path], :date => now, :authorization => auth_string)
+    url = "https://#{bucket}.s3.amazonaws.com"
+    uri = URI.parse(url)
 
-    return response.body
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = true
+    http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+    request = Net::HTTP::Get.new("#{url}#{path}")
+    request.add_field "Date", now
+    request.add_field "Authorization", auth_string
+    http.start do |http|
+      http.request(request) do |response|
+        begin
+          file = open("#{file_path}", 'wb')
+          response.read_body do |segment|
+            file.write(segment)
+          end
+        ensure
+          file.close
+        end
+      end
+    end
   end
 end
